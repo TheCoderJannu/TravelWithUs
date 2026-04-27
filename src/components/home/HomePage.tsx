@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { TripPlanner } from '../trip/TripPlanner';
 import { TripSuggestions } from '../trip/TripSuggestions';
 import { BookingInterface } from '../booking/BookingInterface';
+import { TicketPage } from '../booking/TicketPage';
 import { Plane, Search, Globe, Shield } from 'lucide-react';
 import { flights } from '../../data/flights';
 import { trains } from '../../data/trains';
@@ -10,6 +11,11 @@ import { hotels } from '../../data/hotels';
 export function HomePage() {
   const [showPlanner, setShowPlanner] = useState(false);
   const [showBooking, setShowBooking] = useState(false);
+
+  // ✅ NEW (Ticket Page)
+  const [showTicket, setShowTicket] = useState(false);
+  const [ticketData, setTicketData] = useState<any>(null);
+
   const [selectedDestination, setSelectedDestination] = useState<string>();
 
   // 🔥 Active Tab
@@ -48,11 +54,38 @@ export function HomePage() {
     setShowBooking(true);
   };
 
+  // ✅ NEW: Ticket Open
+  const handleTicketOpen = (item: any) => {
+    setTicketData(item);
+    setShowTicket(true);
+  };
+
   // 🔁 ROUTING
+
+  // ✅ Ticket Page
+  if (showTicket && ticketData) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-6">
+        <button
+          onClick={() => setShowTicket(false)}
+          className="text-blue-600 mb-4"
+        >
+          ← Back
+        </button>
+
+        <TicketPage data={ticketData} />
+      </div>
+    );
+  }
+
+  // Booking Interface (old flow)
   if (showBooking) {
     return (
       <div className="min-h-screen bg-gray-50 py-8 px-4">
-        <button onClick={() => setShowBooking(false)} className="text-blue-600 font-semibold">
+        <button
+          onClick={() => setShowBooking(false)}
+          className="text-blue-600 font-semibold"
+        >
           ← Back
         </button>
         <BookingInterface destination={selectedDestination} />
@@ -60,10 +93,14 @@ export function HomePage() {
     );
   }
 
+  // Trip Planner
   if (showPlanner) {
     return (
       <div className="min-h-screen bg-gray-50 py-8 px-4">
-        <button onClick={() => setShowPlanner(false)} className="text-blue-600 font-semibold">
+        <button
+          onClick={() => setShowPlanner(false)}
+          className="text-blue-600 font-semibold"
+        >
           ← Back
         </button>
         <TripPlanner onTripCreated={handleTripCreated} />
@@ -90,7 +127,7 @@ export function HomePage() {
             Your Journey Starts Here
           </h1>
 
-          {/* 🔥 SEARCH BOX */}
+          {/* SEARCH BOX */}
           <div className="bg-white rounded-2xl shadow-2xl p-6 mt-6">
 
             {/* TABS */}
@@ -113,7 +150,6 @@ export function HomePage() {
             {/* INPUTS */}
             <div className="grid md:grid-cols-4 gap-4">
 
-              {/* FROM */}
               {activeTab !== "hotels" && (
                 <div className="border p-3 rounded">
                   <p className="text-xs text-gray-500">From</p>
@@ -125,7 +161,6 @@ export function HomePage() {
                 </div>
               )}
 
-              {/* TO */}
               <div className="border p-3 rounded">
                 <p className="text-xs text-gray-500">
                   {activeTab === "hotels" ? "City" : "To"}
@@ -137,7 +172,6 @@ export function HomePage() {
                 />
               </div>
 
-              {/* DATE */}
               {activeTab !== "hotels" && (
                 <div className="border p-3 rounded">
                   <p className="text-xs text-gray-500">Date</p>
@@ -150,7 +184,6 @@ export function HomePage() {
                 </div>
               )}
 
-              {/* SEARCH BUTTON */}
               <button
                 onClick={handleSearch}
                 className="bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700"
@@ -162,7 +195,7 @@ export function HomePage() {
         </div>
       </div>
 
-      {/* 🔍 RESULTS */}
+      {/* RESULTS */}
       <div className="max-w-4xl mx-auto mt-6 px-4">
 
         {results.length > 0 && (
@@ -171,7 +204,7 @@ export function HomePage() {
           </h2>
         )}
 
-        {results.map((f, i) => (
+        {results.map((item, i) => (
           <div
             key={i}
             className="bg-white p-5 mb-4 rounded-xl shadow flex justify-between items-center"
@@ -179,30 +212,31 @@ export function HomePage() {
             <div>
               <p className="font-bold text-lg">
                 {activeTab === "flights"
-                  ? f.airline
+                  ? item.airline
                   : activeTab === "trains"
-                  ? f.name
-                  : f.name}
+                  ? item.name
+                  : item.name}
               </p>
 
               <p className="text-gray-500">
                 {activeTab === "hotels"
-                  ? f.city
+                  ? item.city
                   : `${from} → ${to}`}
               </p>
 
               <p className="text-sm text-gray-400">
-                {f.duration || `⭐ ${f.rating}`}
+                {item.duration || `⭐ ${item.rating}`}
               </p>
             </div>
 
             <div className="text-right">
               <p className="text-2xl font-bold text-blue-600">
-                ₹{f.price}
+                ₹{item.price}
               </p>
 
+              {/* ✅ FIXED BOOK BUTTON */}
               <button
-                onClick={() => handleBookNow(to)}
+                onClick={() => handleTicketOpen(item)}
                 className="mt-2 bg-blue-500 text-white px-4 py-1 rounded"
               >
                 Book Now
@@ -210,8 +244,8 @@ export function HomePage() {
             </div>
           </div>
         ))}
-      </div>
 
+      </div>
       {/* FEATURES */}
       <div className="max-w-7xl mx-auto px-4 py-16">
         <div className="grid md:grid-cols-4 gap-8">

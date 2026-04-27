@@ -206,3 +206,7 @@ Potential additions:
 ## License
 
 MIT License
+ 
+--Developer Name--
+
+  Janhvi Suthar
