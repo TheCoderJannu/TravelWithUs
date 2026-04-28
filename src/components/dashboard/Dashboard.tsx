@@ -1,32 +1,54 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
-import { Calendar, MapPin, DollarSign, Package, CheckCircle, Clock, Plane } from 'lucide-react';
+import {
+  Calendar,
+  MapPin,
+  DollarSign,
+  Package,
+  CheckCircle,
+  Clock,
+  Plane,
+  Download
+} from 'lucide-react';
 
 interface Trip {
   id: string;
   destination: string;
   trip_type: string;
   start_date: string;
-  end_date: string;
+  end_date?: string;
   budget: number;
   status: string;
 }
 
 interface Booking {
-  id: string;
-  booking_type: string;
-  amount: number;
-  payment_status: string;
-  booking_date: string;
-  booking_details: any;
+  id?: string;
+  type: string;
+  destination?: string;
+  origin?: string;
+  amount?: number;
+  bookedAt: string;
+  pnr?: string;
+  passenger?: {
+    name?: string;
+    age?: string;
+    gender?: string;
+    seat?: string;
+  };
+  price?: number;
+  price_per_night?: number;
+  hotel?: string;
+  booking_details?: any;
 }
 
 export function Dashboard() {
   const { user } = useAuth();
+
   const [trips, setTrips] = useState<Trip[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
+
   const [stats, setStats] = useState({
     totalTrips: 0,
     upcomingTrips: 0,
@@ -40,41 +62,131 @@ export function Dashboard() {
     }
   }, [user]);
 
+  const getBookingAmount = (booking: Booking) => {
+    return Number(
+      booking.amount ||
+      booking.price ||
+      booking.price_per_night ||
+      booking.booking_details?.amount ||
+      booking.booking_details?.price ||
+      booking.booking_details?.price_per_night ||
+      0
+    );
+  };
+
+  const downloadBookings = () => {
+    const bookingsData: Booking[] = JSON.parse(
+      localStorage.getItem('bookings') || '[]'
+    );
+
+    if (bookingsData.length === 0) {
+      alert('No bookings to download');
+      return;
+    }
+
+    const headers = [
+      'Type',
+      'Date',
+      'Amount',
+      'PNR',
+      'Name',
+      'Origin',
+      'Destination',
+      'Flight',
+      'Train',
+      'Hotel'
+    ];
+
+    const rows = bookingsData.map((booking) => [
+      booking.type || '-',
+      booking.bookedAt
+        ? new Date(booking.bookedAt).toLocaleDateString()
+        : '-',
+      getBookingAmount(booking),
+      booking.pnr || '-',
+      booking.passenger?.name || '-',
+      booking.origin || booking.booking_details?.from || '-',
+      booking.destination || booking.booking_details?.to || '-',
+      booking.type === 'flight'
+        ? booking.booking_details?.airline || booking.destination || '-'
+        : '-',
+      booking.type === 'train'
+        ? booking.booking_details?.provider || booking.destination || '-'
+        : '-',
+      booking.type === 'hotel'
+        ? booking.hotel || booking.booking_details?.name || '-'
+        : '-'
+    ]);
+
+    const csvContent = [headers, ...rows]
+      .map((row) =>
+        row
+          .map((value) => `"${String(value).replace(/"/g, '""')}"`)
+          .join(',')
+      )
+      .join('\n');
+
+    const blob = new Blob([csvContent], {
+      type: 'text/csv;charset=utf-8;',
+    });
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+
+    link.href = url;
+    link.download = 'booking-history.csv';
+    link.click();
+
+    URL.revokeObjectURL(url);
+  };
+
   const loadDashboardData = async () => {
-    const [tripsData, bookingsData] = await Promise.all([
-      supabase
+    try {
+      const tripsData = await supabase
         .from('trips')
         .select('*')
         .eq('user_id', user!.id)
-        .order('start_date', { ascending: false }),
-      supabase
-        .from('bookings')
-        .select('*')
-        .eq('user_id', user!.id)
-        .order('booking_date', { ascending: false }),
-    ]);
+        .order('start_date', { ascending: false });
 
-    if (tripsData.data) {
-      setTrips(tripsData.data);
-      const today = new Date().toISOString().split('T')[0];
-      const upcoming = tripsData.data.filter((t) => t.start_date > today).length;
-      const completed = tripsData.data.filter((t) => t.end_date < today).length;
+      const localBookings: Booking[] = JSON.parse(
+        localStorage.getItem('bookings') || '[]'
+      );
 
-      setStats({
-        totalTrips: tripsData.data.length,
-        upcomingTrips: upcoming,
-        completedTrips: completed,
-        totalSpent: 0,
-      });
+      if (tripsData.data) {
+        const tripList: Trip[] = tripsData.data;
+
+        setTrips(tripList);
+
+        const today = new Date().toISOString().split('T')[0];
+
+        const upcoming = tripList.filter(
+          (t: Trip) => t.start_date > today
+        ).length;
+
+        const completed = tripList.filter(
+          (t: Trip) => t.end_date && t.end_date < today
+        ).length;
+
+        const total = localBookings.reduce(
+          (sum: number, booking: Booking) =>
+            sum + getBookingAmount(booking),
+          0
+        );
+
+        setStats({
+          totalTrips: tripList.length,
+          upcomingTrips: upcoming,
+          completedTrips: completed,
+          totalSpent: total,
+        });
+      }
+
+      setBookings(localBookings);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setLoading(false);
     }
-
-    if (bookingsData.data) {
-      setBookings(bookingsData.data);
-      const total = bookingsData.data.reduce((sum, b) => sum + Number(b.amount), 0);
-      setStats((prev) => ({ ...prev, totalSpent: total }));
-    }
-
-    setLoading(false);
   };
 
   if (loading) {
@@ -85,43 +197,56 @@ export function Dashboard() {
     );
   }
 
-  const upcomingTrips = trips.filter((t) => t.start_date > new Date().toISOString().split('T')[0]);
-  const pastTrips = trips.filter((t) => t.end_date < new Date().toISOString().split('T')[0]);
+  const today = new Date().toISOString().split('T')[0];
+
+  const upcomingTrips = trips.filter(
+    (t: Trip) => t.start_date > today
+  );
+
+  const pastTrips = trips.filter(
+    (t: Trip) => t.end_date && t.end_date < today
+  );
 
   return (
     <div className="max-w-7xl mx-auto">
-      <h2 className="text-3xl font-bold text-gray-800 mb-8">My Dashboard</h2>
+      <div className="flex justify-between items-center mb-8">
+        <h2 className="text-3xl font-bold text-gray-800">
+          My Dashboard
+        </h2>
+
+        <button
+          onClick={downloadBookings}
+          className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-blue-700 transition"
+        >
+          <Download className="w-5 h-5" />
+          Download Bookings
+        </button>
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         <div className="bg-white rounded-xl shadow-lg p-6">
-          <div className="flex items-center justify-between mb-4">
-            <Plane className="w-8 h-8 text-blue-600" />
-          </div>
+          <Plane className="w-8 h-8 text-blue-600 mb-4" />
           <p className="text-3xl font-bold text-gray-800">{stats.totalTrips}</p>
           <p className="text-gray-600 text-sm">Total Trips</p>
         </div>
 
         <div className="bg-white rounded-xl shadow-lg p-6">
-          <div className="flex items-center justify-between mb-4">
-            <Clock className="w-8 h-8 text-yellow-600" />
-          </div>
+          <Clock className="w-8 h-8 text-yellow-600 mb-4" />
           <p className="text-3xl font-bold text-gray-800">{stats.upcomingTrips}</p>
           <p className="text-gray-600 text-sm">Upcoming Trips</p>
         </div>
 
         <div className="bg-white rounded-xl shadow-lg p-6">
-          <div className="flex items-center justify-between mb-4">
-            <CheckCircle className="w-8 h-8 text-green-600" />
-          </div>
+          <CheckCircle className="w-8 h-8 text-green-600 mb-4" />
           <p className="text-3xl font-bold text-gray-800">{stats.completedTrips}</p>
           <p className="text-gray-600 text-sm">Completed Trips</p>
         </div>
 
         <div className="bg-white rounded-xl shadow-lg p-6">
-          <div className="flex items-center justify-between mb-4">
-            <DollarSign className="w-8 h-8 text-purple-600" />
-          </div>
-          <p className="text-3xl font-bold text-gray-800">${stats.totalSpent.toFixed(0)}</p>
+          <DollarSign className="w-8 h-8 text-purple-600 mb-4" />
+          <p className="text-3xl font-bold text-gray-800">
+            ₹{stats.totalSpent.toFixed(0)}
+          </p>
           <p className="text-gray-600 text-sm">Total Spent</p>
         </div>
       </div>
@@ -140,24 +265,20 @@ export function Dashboard() {
             </div>
           ) : (
             <div className="space-y-4">
-              {upcomingTrips.map((trip) => (
+              {upcomingTrips.map((trip: Trip) => (
                 <div key={trip.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition">
-                  <div className="flex items-start justify-between mb-2">
-                    <h4 className="font-semibold text-gray-800 flex items-center">
-                      <MapPin className="w-4 h-4 mr-1 text-blue-600" />
-                      {trip.destination}
-                    </h4>
-                    <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs font-semibold">
-                      {trip.trip_type}
-                    </span>
+                  <h4 className="font-semibold text-gray-800 flex items-center mb-2">
+                    <MapPin className="w-4 h-4 mr-1 text-blue-600" />
+                    {trip.destination}
+                  </h4>
+
+                  <div className="text-sm text-gray-600 mb-2">
+                    {new Date(trip.start_date).toLocaleDateString()} -{' '}
+                    {trip.end_date ? new Date(trip.end_date).toLocaleDateString() : 'N/A'}
                   </div>
-                  <div className="flex items-center text-sm text-gray-600 mb-2">
-                    <Calendar className="w-4 h-4 mr-1" />
-                    {new Date(trip.start_date).toLocaleDateString()} - {new Date(trip.end_date).toLocaleDateString()}
-                  </div>
-                  <div className="flex items-center text-sm text-gray-600">
-                    <DollarSign className="w-4 h-4 mr-1" />
-                    Budget: ${Number(trip.budget).toLocaleString()}
+
+                  <div className="text-sm text-gray-600">
+                    Budget: ₹{Number(trip.budget).toLocaleString()}
                   </div>
                 </div>
               ))}
@@ -178,24 +299,20 @@ export function Dashboard() {
             </div>
           ) : (
             <div className="space-y-4">
-              {pastTrips.slice(0, 3).map((trip) => (
+              {pastTrips.slice(0, 3).map((trip: Trip) => (
                 <div key={trip.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition">
-                  <div className="flex items-start justify-between mb-2">
-                    <h4 className="font-semibold text-gray-800 flex items-center">
-                      <MapPin className="w-4 h-4 mr-1 text-green-600" />
-                      {trip.destination}
-                    </h4>
-                    <span className="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-semibold">
-                      Completed
-                    </span>
+                  <h4 className="font-semibold text-gray-800 flex items-center mb-2">
+                    <MapPin className="w-4 h-4 mr-1 text-green-600" />
+                    {trip.destination}
+                  </h4>
+
+                  <div className="text-sm text-gray-600 mb-2">
+                    {new Date(trip.start_date).toLocaleDateString()} -{' '}
+                    {trip.end_date ? new Date(trip.end_date).toLocaleDateString() : 'N/A'}
                   </div>
-                  <div className="flex items-center text-sm text-gray-600 mb-2">
-                    <Calendar className="w-4 h-4 mr-1" />
-                    {new Date(trip.start_date).toLocaleDateString()} - {new Date(trip.end_date).toLocaleDateString()}
-                  </div>
-                  <div className="flex items-center text-sm text-gray-600">
-                    <DollarSign className="w-4 h-4 mr-1" />
-                    Budget: ${Number(trip.budget).toLocaleString()}
+
+                  <div className="text-sm text-gray-600">
+                    Budget: ₹{Number(trip.budget).toLocaleString()}
                   </div>
                 </div>
               ))}
@@ -223,31 +340,60 @@ export function Dashboard() {
                   <th className="text-left py-3 px-4 font-semibold text-gray-700">Type</th>
                   <th className="text-left py-3 px-4 font-semibold text-gray-700">Date</th>
                   <th className="text-left py-3 px-4 font-semibold text-gray-700">Amount</th>
-                  <th className="text-left py-3 px-4 font-semibold text-gray-700">Status</th>
+                  <th className="text-left py-3 px-4 font-semibold text-gray-700">PNR</th>
+                  <th className="text-left py-3 px-4 font-semibold text-gray-700">Name</th>
+                  <th className="text-left py-3 px-4 font-semibold text-gray-700">Origin</th>
+                  <th className="text-left py-3 px-4 font-semibold text-gray-700">Flight</th>
+                  <th className="text-left py-3 px-4 font-semibold text-gray-700">Train</th>
+                  <th className="text-left py-3 px-4 font-semibold text-gray-700">Hotel</th>
                 </tr>
               </thead>
+
               <tbody>
-                {bookings.slice(0, 5).map((booking) => (
-                  <tr key={booking.id} className="border-b border-gray-100 hover:bg-gray-50">
-                    <td className="py-3 px-4">
-                      <span className="capitalize font-medium text-gray-800">{booking.booking_type}</span>
+                {bookings.slice(0, 5).map((booking, index) => (
+                  <tr key={booking.id || index} className="border-b border-gray-100 hover:bg-gray-50">
+                    <td className="py-3 px-4 capitalize font-medium text-gray-800">
+                      {booking.type || '-'}
                     </td>
+
                     <td className="py-3 px-4 text-gray-600">
-                      {new Date(booking.booking_date).toLocaleDateString()}
+                      {booking.bookedAt
+                        ? new Date(booking.bookedAt).toLocaleDateString()
+                        : '-'}
                     </td>
+
                     <td className="py-3 px-4 font-semibold text-gray-800">
-                      ${Number(booking.amount).toFixed(2)}
+                      ₹{getBookingAmount(booking).toFixed(2)}
                     </td>
-                    <td className="py-3 px-4">
-                      <span
-                        className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                          booking.payment_status === 'completed'
-                            ? 'bg-green-100 text-green-700'
-                            : 'bg-yellow-100 text-yellow-700'
-                        }`}
-                      >
-                        {booking.payment_status}
-                      </span>
+
+                    <td className="py-3 px-4 text-blue-600 font-semibold">
+                      {booking.pnr || '-'}
+                    </td>
+
+                    <td className="py-3 px-4 text-blue-600 font-semibold">
+                      {booking.passenger?.name || '-'}
+                    </td>
+
+                    <td className="py-3 px-4 text-blue-600 font-semibold">
+                      {booking.origin || booking.booking_details?.from || '-'}
+                    </td>
+
+                    <td className="py-3 px-4 text-blue-600 font-semibold">
+                      {booking.type === 'flight'
+                        ? booking.destination || booking.booking_details?.to || '-'
+                        : '-'}
+                    </td>
+
+                    <td className="py-3 px-4 text-blue-600 font-semibold">
+                      {booking.type === 'train'
+                        ? booking.destination || '-'
+                        : '-'}
+                    </td>
+
+                    <td className="py-3 px-4 text-blue-600 font-semibold">
+                      {booking.type === 'hotel'
+                        ? booking.hotel || booking.booking_details?.name || '-'
+                        : '-'}
                     </td>
                   </tr>
                 ))}

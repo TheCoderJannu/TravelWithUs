@@ -1,15 +1,23 @@
 import { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
-import { MapPin, Calendar, DollarSign, Users, Plane, Brain as Train, Car } from 'lucide-react';
+import { MapPin, Calendar, DollarSign, Users, Plane } from 'lucide-react';
 
 interface TripPlannerProps {
   onTripCreated: (tripId: string) => void;
 }
 
+type DestinationSuggestion = {
+  name: string;
+  type: string;
+  cost: number;
+  image: string;
+};
+
 export function TripPlanner({ onTripCreated }: TripPlannerProps) {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
+
   const [formData, setFormData] = useState({
     destination: '',
     tripType: 'national',
@@ -24,48 +32,93 @@ export function TripPlanner({ onTripCreated }: TripPlannerProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) return;
+
+    if (!user) {
+      alert('Please login first');
+      return;
+    }
 
     setLoading(true);
 
     try {
-      const { data: trip, error: tripError } = await supabase
+      const tripPayload = {
+        user_id: user.id,
+        destination: formData.destination,
+        trip_type: formData.tripType,
+        start_date: formData.startDate,
+        end_date: formData.endDate,
+        budget: Number(formData.budget),
+        group_size: Number(formData.groupSize),
+        status: 'planned',
+      };
+
+      const { data: trip, error: tripError } = await (supabase as any)
         .from('trips')
-        .insert({
-          user_id: user.id,
-          destination: formData.destination,
-          trip_type: formData.tripType,
-          start_date: formData.startDate,
-          end_date: formData.endDate,
-          budget: parseFloat(formData.budget),
-          group_size: parseInt(formData.groupSize),
-          status: 'planned',
-        })
+        .insert(tripPayload)
         .select()
         .single();
 
-      if (tripError) throw tripError;
+      if (tripError) {
+        throw tripError;
+      }
 
-      await supabase.from('trip_preferences').insert({
+      if (!trip || !trip.id) {
+        throw new Error('Trip was created but trip ID was not returned');
+      }
+
+      const preferencePayload = {
         trip_id: trip.id,
         transport_type: formData.transportType,
         accommodation_type: formData.accommodationType,
-      });
+      };
 
-      const destinations = [
-        { name: 'Paris, France', type: 'international', cost: 2500, image: 'https://images.pexels.com/photos/699466/pexels-photo-699466.jpeg' },
-        { name: 'Bali, Indonesia', type: 'international', cost: 1800, image: 'https://images.pexels.com/photos/2166559/pexels-photo-2166559.jpeg' },
-        { name: 'Swiss Alps', type: 'international', cost: 3200, image: 'https://images.pexels.com/photos/848618/pexels-photo-848618.jpeg' },
-        { name: 'Dubai, UAE', type: 'international', cost: 2200, image: 'https://images.pexels.com/photos/1169754/pexels-photo-1169754.jpeg' },
-        { name: 'Maldives', type: 'international', cost: 3500, image: 'https://images.pexels.com/photos/221457/pexels-photo-221457.jpeg' },
+      const { error: preferenceError } = await (supabase as any)
+        .from('trip_preferences')
+        .insert(preferencePayload);
+
+      if (preferenceError) {
+        throw preferenceError;
+      }
+
+      const destinations: DestinationSuggestion[] = [
+        {
+          name: 'Paris, France',
+          type: 'international',
+          cost: 2500,
+          image: 'https://images.pexels.com/photos/699466/pexels-photo-699466.jpeg',
+        },
+        {
+          name: 'Bali, Indonesia',
+          type: 'international',
+          cost: 1800,
+          image: 'https://images.pexels.com/photos/2166559/pexels-photo-2166559.jpeg',
+        },
+        {
+          name: 'Swiss Alps',
+          type: 'international',
+          cost: 3200,
+          image: 'https://images.pexels.com/photos/848618/pexels-photo-848618.jpeg',
+        },
+        {
+          name: 'Dubai, UAE',
+          type: 'international',
+          cost: 2200,
+          image: 'https://images.pexels.com/photos/1169754/pexels-photo-1169754.jpeg',
+        },
+        {
+          name: 'Maldives',
+          type: 'international',
+          cost: 3500,
+          image: 'https://images.pexels.com/photos/221457/pexels-photo-221457.jpeg',
+        },
       ];
 
       const suggestions = destinations
-        .filter(d => d.cost <= parseFloat(formData.budget))
+        .filter((d) => d.cost <= Number(formData.budget))
         .slice(0, 3);
 
       for (const suggestion of suggestions) {
-        await supabase.from('trip_suggestions').insert({
+        const suggestionPayload = {
           user_id: user.id,
           destination: suggestion.name,
           trip_type: suggestion.type,
@@ -73,12 +126,21 @@ export function TripPlanner({ onTripCreated }: TripPlannerProps) {
           highlights: ['Beautiful scenery', 'Great food', 'Rich culture'],
           description: `Explore the wonders of ${suggestion.name}`,
           image_url: suggestion.image,
-        });
+        };
+
+        const { error: suggestionError } = await (supabase as any)
+          .from('trip_suggestions')
+          .insert(suggestionPayload);
+
+        if (suggestionError) {
+          throw suggestionError;
+        }
       }
 
       onTripCreated(trip.id);
     } catch (error) {
       console.error('Error creating trip:', error);
+      alert('Trip creation failed. Please check console.');
     } finally {
       setLoading(false);
     }
@@ -86,7 +148,9 @@ export function TripPlanner({ onTripCreated }: TripPlannerProps) {
 
   return (
     <div className="max-w-4xl mx-auto bg-white rounded-2xl shadow-lg p-8">
-      <h2 className="text-3xl font-bold text-gray-800 mb-6">Plan Your Next Adventure</h2>
+      <h2 className="text-3xl font-bold text-gray-800 mb-6">
+        Plan Your Next Adventure
+      </h2>
 
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -98,7 +162,9 @@ export function TripPlanner({ onTripCreated }: TripPlannerProps) {
             <input
               type="text"
               value={formData.destination}
-              onChange={(e) => setFormData({ ...formData, destination: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, destination: e.target.value })
+              }
               required
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               placeholder="Where do you want to go?"
@@ -112,7 +178,9 @@ export function TripPlanner({ onTripCreated }: TripPlannerProps) {
             </label>
             <select
               value={formData.tripType}
-              onChange={(e) => setFormData({ ...formData, tripType: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, tripType: e.target.value })
+              }
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             >
               <option value="national">National</option>
@@ -129,7 +197,9 @@ export function TripPlanner({ onTripCreated }: TripPlannerProps) {
             <input
               type="date"
               value={formData.startDate}
-              onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, startDate: e.target.value })
+              }
               required
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
@@ -143,7 +213,9 @@ export function TripPlanner({ onTripCreated }: TripPlannerProps) {
             <input
               type="date"
               value={formData.endDate}
-              onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, endDate: e.target.value })
+              }
               required
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
@@ -157,7 +229,9 @@ export function TripPlanner({ onTripCreated }: TripPlannerProps) {
             <input
               type="number"
               value={formData.budget}
-              onChange={(e) => setFormData({ ...formData, budget: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, budget: e.target.value })
+              }
               required
               min="0"
               step="0.01"
@@ -174,7 +248,9 @@ export function TripPlanner({ onTripCreated }: TripPlannerProps) {
             <input
               type="number"
               value={formData.groupSize}
-              onChange={(e) => setFormData({ ...formData, groupSize: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, groupSize: e.target.value })
+              }
               required
               min="1"
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -182,10 +258,14 @@ export function TripPlanner({ onTripCreated }: TripPlannerProps) {
           </div>
 
           <div>
-            <label className="text-sm font-medium text-gray-700 mb-2 block">Travel Style</label>
+            <label className="text-sm font-medium text-gray-700 mb-2 block">
+              Travel Style
+            </label>
             <select
               value={formData.travelStyle}
-              onChange={(e) => setFormData({ ...formData, travelStyle: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, travelStyle: e.target.value })
+              }
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             >
               <option value="solo">Solo</option>
@@ -196,10 +276,14 @@ export function TripPlanner({ onTripCreated }: TripPlannerProps) {
           </div>
 
           <div>
-            <label className="text-sm font-medium text-gray-700 mb-2 block">Preferred Transport</label>
+            <label className="text-sm font-medium text-gray-700 mb-2 block">
+              Preferred Transport
+            </label>
             <select
               value={formData.transportType}
-              onChange={(e) => setFormData({ ...formData, transportType: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, transportType: e.target.value })
+              }
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             >
               <option value="any">Any</option>
@@ -210,13 +294,18 @@ export function TripPlanner({ onTripCreated }: TripPlannerProps) {
           </div>
 
           <div className="md:col-span-2">
-            <label className="text-sm font-medium text-gray-700 mb-2 block">Accommodation Type</label>
+            <label className="text-sm font-medium text-gray-700 mb-2 block">
+              Accommodation Type
+            </label>
+
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {['hotel', 'hostel', 'resort', 'apartment'].map((type) => (
                 <button
                   key={type}
                   type="button"
-                  onClick={() => setFormData({ ...formData, accommodationType: type })}
+                  onClick={() =>
+                    setFormData({ ...formData, accommodationType: type })
+                  }
                   className={`px-4 py-3 border-2 rounded-lg font-medium capitalize transition ${
                     formData.accommodationType === type
                       ? 'border-blue-600 bg-blue-50 text-blue-600'

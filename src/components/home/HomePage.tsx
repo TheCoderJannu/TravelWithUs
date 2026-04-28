@@ -42,7 +42,7 @@ export function HomePage() {
     } 
     else if (activeTab === "hotels") {
       setResults(
-        hotels.filter(h => h.city === to)
+        hotels.filter(h => h.location === to)
       );
     }
   };

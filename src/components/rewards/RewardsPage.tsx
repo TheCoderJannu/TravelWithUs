@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { supabase } from '../../lib/supabase';
 import { Gift, Calendar, Check, DollarSign, Trophy } from 'lucide-react';
 
 interface Reward {
@@ -11,6 +10,7 @@ interface Reward {
   earned_date: string;
   expiry_date: string | null;
   is_redeemed: boolean;
+  photo_id?: string;
 }
 
 export function RewardsPage() {
@@ -26,23 +26,48 @@ export function RewardsPage() {
     }
   }, [user]);
 
-  const loadRewards = async () => {
-    const { data, error } = await supabase
-      .from('rewards')
-      .select('*')
-      .eq('user_id', user!.id)
-      .order('earned_date', { ascending: false });
+  const loadRewards = () => {
+    const localRewards: Reward[] = JSON.parse(
+      localStorage.getItem('rewards') || '[]'
+    );
 
-    if (!error && data) {
-      setRewards(data);
-      const total = data.reduce((sum, r) => sum + Number(r.amount), 0);
-      const available = data
-        .filter((r) => !r.is_redeemed)
-        .reduce((sum, r) => sum + Number(r.amount), 0);
-      setTotalEarned(total);
-      setAvailableBalance(available);
-    }
+    setRewards(localRewards);
+
+    const total = localRewards.reduce(
+      (sum, reward) => sum + Number(reward.amount),
+      0
+    );
+
+    const available = localRewards
+      .filter((reward) => !reward.is_redeemed)
+      .reduce((sum, reward) => sum + Number(reward.amount), 0);
+
+    setTotalEarned(total);
+    setAvailableBalance(available);
     setLoading(false);
+  };
+
+  const handleRedeem = (rewardId: string) => {
+    const updatedRewards = rewards.map((reward) =>
+      reward.id === rewardId
+        ? { ...reward, is_redeemed: true }
+        : reward
+    );
+
+    localStorage.setItem('rewards', JSON.stringify(updatedRewards));
+    setRewards(updatedRewards);
+
+    const total = updatedRewards.reduce(
+      (sum, reward) => sum + Number(reward.amount),
+      0
+    );
+
+    const available = updatedRewards
+      .filter((reward) => !reward.is_redeemed)
+      .reduce((sum, reward) => sum + Number(reward.amount), 0);
+
+    setTotalEarned(total);
+    setAvailableBalance(available);
   };
 
   if (loading) {
@@ -66,7 +91,7 @@ export function RewardsPage() {
             <Trophy className="w-8 h-8" />
             <span className="text-sm opacity-90">Total Earned</span>
           </div>
-          <p className="text-4xl font-bold">${totalEarned.toFixed(2)}</p>
+          <p className="text-4xl font-bold">₹{totalEarned.toFixed(2)}</p>
         </div>
 
         <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-2xl p-6 text-white shadow-lg">
@@ -74,7 +99,7 @@ export function RewardsPage() {
             <DollarSign className="w-8 h-8" />
             <span className="text-sm opacity-90">Available Balance</span>
           </div>
-          <p className="text-4xl font-bold">${availableBalance.toFixed(2)}</p>
+          <p className="text-4xl font-bold">₹{availableBalance.toFixed(2)}</p>
         </div>
 
         <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-2xl p-6 text-white shadow-lg">
@@ -114,6 +139,7 @@ export function RewardsPage() {
                       <span className="bg-blue-600 text-white px-4 py-1 rounded-full text-sm font-mono font-semibold">
                         {reward.voucher_code}
                       </span>
+
                       {reward.is_redeemed && (
                         <span className="flex items-center text-green-600 text-sm font-semibold">
                           <Check className="w-4 h-4 mr-1" />
@@ -121,12 +147,17 @@ export function RewardsPage() {
                         </span>
                       )}
                     </div>
-                    <p className="text-gray-700 mb-2">{reward.reason || 'Reward voucher'}</p>
+
+                    <p className="text-gray-700 mb-2">
+                      {reward.reason || 'Reward voucher'}
+                    </p>
+
                     <div className="flex items-center space-x-4 text-sm text-gray-500">
                       <span className="flex items-center">
                         <Calendar className="w-4 h-4 mr-1" />
                         Earned: {new Date(reward.earned_date).toLocaleDateString()}
                       </span>
+
                       {reward.expiry_date && (
                         <span>
                           Expires: {new Date(reward.expiry_date).toLocaleDateString()}
@@ -137,10 +168,14 @@ export function RewardsPage() {
 
                   <div className="text-right">
                     <p className="text-3xl font-bold text-green-600">
-                      ${Number(reward.amount).toFixed(2)}
+                      ₹{Number(reward.amount).toFixed(2)}
                     </p>
+
                     {!reward.is_redeemed && (
-                      <button className="mt-2 bg-blue-600 text-white px-6 py-2 rounded-lg text-sm font-semibold hover:bg-blue-700 transition">
+                      <button
+                        onClick={() => handleRedeem(reward.id)}
+                        className="mt-2 bg-blue-600 text-white px-6 py-2 rounded-lg text-sm font-semibold hover:bg-blue-700 transition"
+                      >
                         Use Now
                       </button>
                     )}
@@ -153,19 +188,24 @@ export function RewardsPage() {
       </div>
 
       <div className="mt-8 bg-blue-50 border border-blue-200 rounded-xl p-6">
-        <h4 className="text-lg font-bold text-blue-800 mb-3">How to Earn More Rewards</h4>
+        <h4 className="text-lg font-bold text-blue-800 mb-3">
+          How to Earn More Rewards
+        </h4>
+
         <ul className="space-y-2 text-blue-700">
           <li className="flex items-start">
             <span className="mr-2">•</span>
             <span>Upload your travel photos to the gallery</span>
           </li>
+
           <li className="flex items-start">
             <span className="mr-2">•</span>
-            <span>Get high ratings from other travelers (4.5+ stars)</span>
+            <span>Rate your photos with 4 or 5 stars</span>
           </li>
+
           <li className="flex items-start">
             <span className="mr-2">•</span>
-            <span>Earn $50 vouchers automatically when your photos reach 4.5+ average rating</span>
+            <span>Earn ₹100 for 4-star ratings and ₹200 for 5-star ratings</span>
           </li>
         </ul>
       </div>

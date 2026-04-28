@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
-import { MapPin, DollarSign, Star } from 'lucide-react';
+import { MapPin, DollarSign } from 'lucide-react';
 
 interface Suggestion {
   id: string;
